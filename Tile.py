@@ -185,8 +185,8 @@ class Tile(CustomWindow):
             self.set_background(bg=self.bg)
 
         elif content == "EidtTaskWindow":
-            for value in self.mydb_dict.itervalues():
-                if value[4] == self.tag_name.get():
+            for value in list(self.mydb_dict.values()):
+                if len(value) > 4 and value[4] == self.tag_name.get():
                     NewTaskWindow(
                         title="修改日程",
                         height=180,
@@ -197,8 +197,8 @@ class Tile(CustomWindow):
             self.tag_name.set("")
 
         elif content == "DelTaskWindow":
-            for value in self.mydb_dict.itervalues():
-                if value[4] == self.tag_name.get():
+            for value in list(self.mydb_dict.values()):
+                if len(value) > 4 and value[4] == self.tag_name.get():
                     self.tasks.del_one(value[0])
                     self.tile_queue.put("refresh_tasks")
                     self.tag_name.set("")
@@ -222,40 +222,42 @@ class Tile(CustomWindow):
                 self.tag_name.set(content[1])
 
     def update_win_mode(self, win_mode):
-        # 实现代码很简单
-        # 关于嵌入桌面的笔记：
-        # 1.使用工具winspy（网上自行下载）查看窗口句柄
-        # 2.SHELLDLL_DefView是你的桌面窗口类名，它的子窗口是图标窗口，但是默认情况它是在“Progman”窗口下。
-        # 3.一旦你点击右下角的桌面按钮，或者使用Win+Tab， Win+D快捷键，你会发现桌面窗口跑到了“WorkerW”窗口下。
-        # 4.经过测试发现SHELLDLL_DefView很灵活，如果你把自己的窗口设置为Progman的子窗口，那么SHELLDLL_DefView会自动设置顶层窗口，
-        # 自己成为自己的主窗口。而你一旦进行桌面操作，它就自动跑到“WorkerW”窗口下。
-        # 5.发现如果设置Progman的子窗口，并不能显示在桌面，只有在“WorkerW”窗口下才可以。
-        # 6.另外“WorkerW”窗口默认是没有激活的，只有进行桌面相关操作才会激活（向桌面发送 0x052c）
-        # 7.最后发现想要嵌入桌面，一种简单的做法就是直接把你的窗体的父窗口设置成“WorkerW”窗口
-
-        # 网上的blog：
-        # 默认的桌面窗口是“SHELLDLL_DefView”，在“Progman”窗口下，你写个程序检测，会发现，点击显示桌面后，这时，激活任意程序窗口，这个特殊状态就消失了，桌面又回到了“Progman”窗口下。
-        # 其实系统的显示桌面功能，并不是将桌面上的所有应用程序窗口隐藏或最小化，而是一个特殊的状态，“WorkerW”默认是隐藏，当要显示桌面时，会被显示出来，并且窗口Z次序跑到顶层，
-        # 然后将“SHELLDLL_DefView”桌面的父窗口由“Progman”改为“WorkerW”，这时的应用程序可能也是在某种特殊状态下。所以你用IsWindowVisble、IsIconic等函数是检测不出来的，除非点了显示桌面后，又激活了任意某个窗口。
-        # 1. 使用win32api.EnumWindows()枚举窗口；
-        # 2. 先找到"SHELLDLL_DefView"窗口的父窗口；
-        # 3. 再找到该窗口的下一层窗口“WorkerW”;
-        # 4. 将我们的窗口设为该“WorkerW”窗口的子窗口即可。
-
+        hwnd_val = int(self.hwnd)
         if win_mode == "独立窗体":
-            win32gui.SetParent(self.hwnd, 0)
+            try:
+                win32gui.SetParent(hwnd_val, 0)
+                style = win32gui.GetWindowLong(hwnd_val, win32con.GWL_STYLE)
+                style = (style & ~win32con.WS_CHILD) | win32con.WS_POPUP
+                win32gui.SetWindowLong(hwnd_val, win32con.GWL_STYLE, style)
+                self.set_top(self.tile_top)
+            except Exception:
+                pass
         else:
-            pWnd = win32gui.FindWindow("Progman", "Program Manager")
-            win32gui.SendMessage(pWnd, 0x052c, 0, 0)
-            win32gui.EnumWindows(self.get_workw_hwnd, 0)
-            win32gui.SetParent(self.hwnd, self.hhwnd)
+            try:
+                pWnd = win32gui.FindWindow("Progman", "Program Manager")
+                if pWnd:
+                    win32gui.SendMessageTimeout(pWnd, 0x052c, 0, 0, win32con.SMTO_NORMAL, 1000)
+                self.hhwnd = 0
+                win32gui.EnumWindows(self.get_workw_hwnd, 0)
+                target_parent = self.hhwnd if self.hhwnd else pWnd
+                if target_parent:
+                    win32gui.SetParent(hwnd_val, target_parent)
+            except Exception:
+                pass
 
     def get_workw_hwnd(self, hwnd, lParam):
-        """遍历找到workw"""
-        if win32gui.IsWindowVisible(hwnd):
-            hNextWin = win32gui.FindWindowEx(hwnd, None, "SHELLDLL_DefView", None)
-            if hNextWin:
-                self.hhwnd = hwnd
+        """遍历找到与桌面相关的 WorkerW 窗口"""
+        try:
+            if win32gui.IsWindowVisible(hwnd):
+                hNextWin = win32gui.FindWindowEx(hwnd, None, "SHELLDLL_DefView", None)
+                if hNextWin:
+                    worker_behind = win32gui.FindWindowEx(0, hwnd, "WorkerW", None)
+                    if worker_behind:
+                        self.hhwnd = worker_behind
+                    else:
+                        self.hhwnd = hwnd
+        except Exception:
+            pass
 
     def set_theme(self, tile_theme_name, remove_=True):
         """
@@ -274,6 +276,11 @@ class Tile(CustomWindow):
         设置是否圆角,refresh_是否刷新列表
         """
         self.task_radius = task_radius
+        # 在 Windows 11 下同步设置系统窗口圆角偏好
+        try:
+            self.window_effect.setWindowCorner(self.hwnd, 2 if task_radius > 0 else 1)
+        except Exception:
+            pass
 
         if refresh_:
             self.tasks.refresh_tasks()
@@ -359,15 +366,21 @@ class Tasks:
     def update_sqlite_time(self):
         # 初始化更新时间
         from datetime import datetime
-        for key, value in self.mydb_dict.iteritems():
-            startdate = datetime.today()
-            enddate = datetime.strptime(value[1], '%Y-%m-%d')
-            days = str((enddate - startdate).days)
-            self.mydb_dict[key] = [value[0], value[1], days, value[3], value[4], value[5]]
+        startdate = datetime.today()
+        for key, value in list(self.mydb_dict.items()):
+            try:
+                enddate = datetime.strptime(value[1], '%Y-%m-%d')
+                days = str((enddate - startdate).days)
+                self.mydb_dict[key] = [value[0], value[1], days, value[3], value[4], value[5]]
+            except Exception:
+                pass
 
     def __get_int_day(self, value):
         """按照时间排序(返回第三个值,时间值)"""
-        return int(value[2])
+        try:
+            return int(value[2])
+        except Exception:
+            return 999999
 
     def __round_rectangle(self, x1, y1, x2, y2, radius=25, **kwargs):
         """画长方形"""
@@ -466,8 +479,8 @@ class Tasks:
         self.tile_queue.put(("set_tag_name", task_tag_name))
 
     def __double_click(self, event, task_tag_name):
-        for value in self.mydb_dict.itervalues():
-            if value[4] == task_tag_name:
+        for value in list(self.mydb_dict.values()):
+            if len(value) > 4 and value[4] == task_tag_name:
                 NewTaskWindow(
                     title="修改日程",
                     height=180,
@@ -480,7 +493,10 @@ class Tasks:
         self.mydb_dict[value[0]] = value
 
     def del_one(self, value):
-        self.mydb_dict.__delitem__(value)
+        try:
+            del self.mydb_dict[value]
+        except Exception:
+            pass
 
     def refresh_tasks(self):
         # 画布删除,重新画
@@ -491,8 +507,11 @@ class Tasks:
         """删除所有数据"""
         self.canvas.delete("all")
         self.tile_queue.put("set_tag_name_")
-        for key in self.mydb_dict.iterkeys():
-            self.mydb_dict.__delitem__(key)
+        for key in list(self.mydb_dict.keys()):
+            try:
+                del self.mydb_dict[key]
+            except Exception:
+                pass
 
     def show_all(self):
         """展示所有数据"""
@@ -522,20 +541,13 @@ class Tasks:
 
         self.task_y = self.task_margin_y
 
-        # print("数据库中的tile_geometry：", self.tile_geometry)
-
         # 没有任务项目时的大小
         self.pre_window_root.geometry("%dx%d+%d+%d" % (self.task_width + self.task_margin_x * 2,
                                                        self.task_y + self.task_height + self.task_margin_y,
                                                        self.tile_geometry[2],
                                                        self.tile_geometry[3]))
 
-        # print("没有任务项目时的tile_geometry：", (self.task_width + self.task_margin_x * 2,
-        #                                  self.task_y + self.task_height + self.task_margin_y,
-        #                                  self.tile_geometry[2],
-        #                                  self.tile_geometry[3]))
-
-        for value in sorted(self.mydb_dict.itervalues(), key=self.__get_int_day):
+        for value in sorted(list(self.mydb_dict.values()), key=self.__get_int_day):
             self.__add_task(value)
 
             self.task_y = self.task_y + self.task_height + self.task_margin_y  # 更新新添加的高度
@@ -765,24 +777,29 @@ class HelpWindow(CustomWindow):
         self.p.setDaemon(True)
         self.p.start()
 
-        self.root.mainloop()
-
     def init_file(self):
-        with open(self.path, encoding='utf-8') as f:
-            self.filename.set(self.path)
-            md2html = Markdown()
-            html = md2html.convert(f.read())
-            self.HtmlView.set_html(html)
+        try:
+            if os.path.exists(self.path):
+                with open(self.path, encoding='utf-8') as f:
+                    self.filename.set(self.path)
+                    md2html = Markdown()
+                    html = md2html.convert(f.read())
+                    self.HtmlView.set_html(html)
+        except Exception:
+            pass
 
     def open_file(self):
         path = askopenfilename()
         if not path:
             return
-        with open(path, encoding='utf-8') as f:
-            self.filename.set(path)
-            md2html = Markdown()
-            html = md2html.convert(f.read())
-            self.HtmlView.set_html(html)
+        try:
+            with open(path, encoding='utf-8') as f:
+                self.filename.set(path)
+                md2html = Markdown()
+                html = md2html.convert(f.read())
+                self.HtmlView.set_html(html)
+        except Exception:
+            pass
 
 
 class ScaleFrame(Frame):
@@ -825,15 +842,8 @@ class WaitWindow(CustomWindow):
         self.frame_top.pack(side=TOP, padx=5, pady=10)
         # 提示内容
         self.content_lable = tk.Label(self.frame_top, text="正在初始化,请不要操作，请耐心等待......")
-        self.content_lable.pack()
-
         self.queue = queue  # 子线程与主线程的队列作为中继
-        self.root.after(1000, self.relay)
-
-        # root.mainloop()
-        # 1.无法在threading中启动mainloop，main_loop方法必须在主线程当中进行。子线程直接操作UI会有很大的隐患。推荐使用队列与主线程交互。
-        # 2.另外mainloop()是一个阻塞函数，在外部调用其函数，会阻塞，除非那种一次性的回调（例如按钮的点击事件）
-        self.root.mainloop()
+        self.root.after(200, self.relay)
 
     def relay(self):
         """更新UI队列"""
@@ -958,20 +968,21 @@ class UpdateWindow(CustomWindow):
     '''-----------------------------------请求线程-----------------------------------------------'''
 
     def update(self):
-        update_path = str(Path(self.exe_dir_path).joinpath("update.txt"))
         try:
-            with open(update_path, "wb") as f:
-                f.write(requests.get("https://aidcs-1256440297.cos.ap-beijing.myqcloud.com/update.txt").content)
-            with open(update_path, "r", encoding='utf8') as f:
-                config = f.readline()
-            config_dict = json.loads(config)
-            self.update_version = config_dict["version"]
-            self.update_url = config_dict["url"]
+            resp = requests.get(
+                "https://aidcs-1256440297.cos.ap-beijing.myqcloud.com/update.txt",
+                timeout=6
+            )
+            resp.raise_for_status()
+            text = resp.text.strip()
+            config_dict = json.loads(text)
+            self.update_version = config_dict.get("version", self.version)
+            self.update_url = config_dict.get("url", "")
             if self.version != self.update_version:
                 self.queue.put("需要更新")
             else:
                 self.queue.put("不需更新")
-        except:
+        except Exception:
             self.logger.info(traceback.format_exc())
             self.queue.put("网络错误")
 

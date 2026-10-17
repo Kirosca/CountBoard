@@ -11,3 +11,4 @@ pack
 logs
 pack32
 *.txt
+!requirements.txt

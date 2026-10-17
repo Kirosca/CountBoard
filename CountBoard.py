@@ -9,6 +9,7 @@
 import functools
 import logging
 import os
+import sys
 import time
 import win32api
 import win32con
@@ -27,7 +28,7 @@ from ttkbootstrap.style import utility
 class MainWindow(CustomWindow):
     """主窗体模块"""
 
-    def __init__(self, version, icon, logger, exe_dir_path, first_dict, *args, **kwargs):
+    def __init__(self, version, icon, logger, exe_dir_path, first_dict, data_dir_path=None, *args, **kwargs):
         self.root = tk.Tk()
 
         self.first_dict = first_dict
@@ -35,6 +36,7 @@ class MainWindow(CustomWindow):
             self.root.tk.call('tk', 'scaling', first_dict["scaling"][0] / 100)
         logger.info("默认窗口缩放:" + str(self.root.tk.call('tk', 'scaling')))
 
+        self.data_dir_path = data_dir_path if data_dir_path else exe_dir_path
         self.style = ttk.Style()
         super().__init__(*args, **kwargs)
 
@@ -215,19 +217,29 @@ class MainWindow(CustomWindow):
             self.reset()
 
         elif content == "exit":
-            sys.exit(1)
-
             try:
-                self.scheduler.shutdown(True)
-                time.sleep(1)
-                self.exit()
-            except:
-                print("ddddddddddddddddddddddd")
-
-            # import win32con
-            # self.hwnd = pywintypes.HANDLE(int(self.root.frame(), 16))
-            # win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, 0, 0)
-            # print()
+                if hasattr(self, 'scheduler') and self.scheduler.running:
+                    self.scheduler.shutdown(wait=False)
+            except Exception:
+                pass
+            try:
+                if hasattr(self, 't') and hasattr(self.t, 'hwnd'):
+                    win32gui.DestroyWindow(self.t.hwnd)
+            except Exception:
+                pass
+            try:
+                if hasattr(self, 'mydb_dict'):
+                    self.mydb_dict.close()
+                if hasattr(self, 'mysetting_dict'):
+                    self.mysetting_dict.close()
+            except Exception:
+                pass
+            try:
+                self.root.quit()
+                self.root.destroy()
+            except Exception:
+                pass
+            os._exit(0)
 
         elif content == "show_":
             # 显示窗体
@@ -239,10 +251,7 @@ class MainWindow(CustomWindow):
 
         elif content == "set_scaling":
             # 自定义缩放：此选项只能设置之后的缩放，已经绘制的控件无法更改
-            # ScaleFactor = ctypes.windll.shcore.GetScaleFactorForDevice(0)
-            # root.tk.call('tk', 'scaling', ScaleFactor / 75)
             self.scaling = self.root.tk.call('tk', 'scaling', 3)
-            # print("scaling")
 
         elif content == "set_regular_notify":
             # 设置主题
@@ -275,10 +284,18 @@ class MainWindow(CustomWindow):
                     self.logger.info("没有：self.interval_notify_job.remove()")
 
     def interval_notify_(self):
-        self.t.ShowToast(title=self.interval_notify_title.get(), msg=self.interval_notify_content.get())
+        try:
+            if hasattr(self, 't') and self.t is not None:
+                self.t.ShowToast(title=self.interval_notify_title.get(), msg=self.interval_notify_content.get())
+        except Exception as e:
+            self.logger.info(f"间隔提醒触发异常: {e}")
 
     def regular_notify_(self):
-        self.t.ShowToast(title=self.regular_notify_title.get(), msg=self.regular_notify_content.get())
+        try:
+            if hasattr(self, 't') and self.t is not None:
+                self.t.ShowToast(title=self.regular_notify_title.get(), msg=self.regular_notify_content.get())
+        except Exception as e:
+            self.logger.info(f"定时提醒触发异常: {e}")
 
     '''-----------------------------------耗时操作线程-----------------------------------------------'''
 
@@ -289,13 +306,13 @@ class MainWindow(CustomWindow):
         # self.main_window_queue.put("set_scaling")
 
         # 判断是否第一次运行(执行恢复默认操作)
-        if not os.path.exists(self.exe_dir_path + "/my_setting.sqlite"):
+        if not os.path.exists(os.path.join(self.data_dir_path, "my_setting.sqlite")):
             self.logger.info("第一次运行")
             self.reset()
 
         # 读取数据库
-        self.mydb_dict = SqliteDict(self.exe_dir_path + '/my_db.sqlite', autocommit=True)
-        self.mysetting_dict = SqliteDict(self.exe_dir_path + '/my_setting.sqlite', autocommit=True)
+        self.mydb_dict = SqliteDict(os.path.join(self.data_dir_path, 'my_db.sqlite'), autocommit=True)
+        self.mysetting_dict = SqliteDict(os.path.join(self.data_dir_path, 'my_setting.sqlite'), autocommit=True)
         self.logger.info([(x, i) for x, i in self.mysetting_dict.items()])
 
         # 其他变量
@@ -354,22 +371,17 @@ class MainWindow(CustomWindow):
         self.scaling_flag.set(self.first_dict["scaling_flag"][0])
         self.scaling.set(self.first_dict["scaling"][0])
 
-        # self.main_window_queue.put("set_theme")
-        # self.queue.put("change_theme")  # 解决因主题改变导致resize控件样式改变
-
         # 设置主题
         self.main_window_queue.put("set_theme")
         # 打开tile
         self.main_window_queue.put("show_tile")
-        # 关闭等待窗体
-        # self.main_window_queue.put("close_wait_window")
         self.main_window_queue.put("set_interval_notify")
         self.main_window_queue.put("set_regular_notify")
 
     def reset(self):
         """恢复默认配置或者初始化配置"""
-        mydb_dict = SqliteDict(self.exe_dir_path + '/my_db.sqlite', autocommit=True)
-        mysetting_dict = SqliteDict(self.exe_dir_path + '/my_setting.sqlite', autocommit=True)
+        mydb_dict = SqliteDict(os.path.join(self.data_dir_path, 'my_db.sqlite'), autocommit=True)
+        mysetting_dict = SqliteDict(os.path.join(self.data_dir_path, 'my_setting.sqlite'), autocommit=True)
         mydb_dict.clear()
         mysetting_dict.clear()
 
@@ -403,7 +415,7 @@ class MainWindow(CustomWindow):
 
     def backend(self):
         """后台图标线程"""
-        with SqliteDict(self.exe_dir_path + '/my_setting.sqlite') as mydict:  # re-open the same DB
+        with SqliteDict(os.path.join(self.data_dir_path, 'my_setting.sqlite')) as mydict:  # re-open the same DB
             try:
                 taskbar_icon = mydict["taskbar_icon"][0]
             except:
@@ -742,24 +754,23 @@ class MainWindow(CustomWindow):
     def set_auto_run(self):
         """是否开启软件自启"""
         self.mysetting_dict["auto_run"] = [self.auto_run.get()]
-
-        name = 'CountBoard'  # 要添加的项值名称
-        path = str(Path(self.exe_dir_path).joinpath("CountBoard.exe"))  # 要添加的exe路径
-        # KeyName = "SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"  # 注册表项名
-        # key = win32api.RegOpenKey(win32con.HKEY_LOCAL_MACHINE, KeyName, 0, win32con.KEY_ALL_ACCESS)
-
-        KeyName = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"  # 注册表项名
-        key = win32api.RegOpenKey(win32con.HKEY_CURRENT_USER, KeyName, 0, win32con.KEY_ALL_ACCESS)
-
-        if self.auto_run.get():
-            win32api.RegSetValueEx(key, name, 0, win32con.REG_SZ, path)
-            print('开启软件自启动')
-            print(win32api.RegQueryValueEx(key, name))
-        else:
-            # 偷懒了，不想修改注册表直接删除了事
-            win32api.RegDeleteValue(key, name)
-            print('关闭软件自启动')
-        win32api.RegCloseKey(key)
+        name = 'CountBoard'
+        path = str(Path(self.exe_dir_path).joinpath("CountBoard.exe"))
+        KeyName = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+        try:
+            key = win32api.RegOpenKey(win32con.HKEY_CURRENT_USER, KeyName, 0, win32con.KEY_ALL_ACCESS)
+            if self.auto_run.get():
+                win32api.RegSetValueEx(key, name, 0, win32con.REG_SZ, f'"{path}"')
+                print('开启软件自启动')
+            else:
+                try:
+                    win32api.RegDeleteValue(key, name)
+                except Exception:
+                    pass
+                print('关闭软件自启动')
+            win32api.RegCloseKey(key)
+        except Exception as e:
+            self.logger.error(f"设置开机自启失败: {e}")
 
     # @property
     # def is_admin(self):
@@ -1218,105 +1229,147 @@ class MainWindow(CustomWindow):
 
 
 def just_one_instance(func):
-    """一个Python实例"""
-
+    """使用 Windows 内核命名互斥量保证单实例运行"""
     @functools.wraps(func)
     def f(*args, **kwargs):
-        # 保证只能运行一个Python实例，方法是程序运行时监听一个特定端口，如果失败则说明已经有实例在跑
-        import socket
+        import win32event
+        import winerror
+        global _app_mutex
         try:
-            # 全局属性，否则变量会在方法退出后被销毁
-            global s
-            s = socket.socket()
-            host = socket.gethostname()
-            s.bind((host, 60123))
-        except:
-            print('程序已经在运行了')
-            return None
+            _app_mutex = win32event.CreateMutex(None, False, "Global\\CountBoard_SingleInstance_Mutex_Gaoyongxian")
+            if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+                print('程序已经在运行了')
+                try:
+                    hwnd = win32gui.FindWindow(None, "CountBoard")
+                    if hwnd:
+                        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                        win32gui.SetForegroundWindow(hwnd)
+                except Exception:
+                    pass
+                return None
+        except Exception:
+            pass
         return func(*args, **kwargs)
 
     return f
 
 
-def my_logs(exe_dir_path):
-    # 创建logs文件夹
-    if not os.path.exists(exe_dir_path + r"/logs/"):
-        os.mkdir(exe_dir_path + r"/logs/")
+def get_app_paths():
+    """获取程序执行目录和可写数据目录（适配多用户与受限安装环境）"""
+    exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
 
-    # 开启日志记录:创建一个logger
+    # 测试当前执行目录是否具备写权限（便携版运行场景）
+    test_file = os.path.join(exe_dir, f".perm_test_{os.getpid()}")
+    can_write = False
+    try:
+        with open(test_file, "w") as f:
+            f.write("1")
+        os.remove(test_file)
+        can_write = True
+    except Exception:
+        can_write = False
+
+    if can_write:
+        data_dir = exe_dir
+    else:
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data:
+            local_app_data = os.path.expanduser("~")
+        data_dir = os.path.join(local_app_data, "CountBoard")
+        os.makedirs(data_dir, exist_ok=True)
+
+    return exe_dir, data_dir
+
+
+def my_logs(data_dir_path):
+    logs_dir = os.path.join(data_dir_path, "logs")
+    if not os.path.exists(logs_dir):
+        try:
+            os.makedirs(logs_dir, exist_ok=True)
+        except Exception:
+            pass
+
     logger = logging.getLogger()
-    # Log等级总开关
     logger.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s")  # 日志格式
+    formatter = logging.Formatter("%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s")
 
-    # 创建一个handler，用于写入日志文件
-    fh = logging.FileHandler(
-        exe_dir_path + '/logs/' + time.strftime('%Y%m%d%H%M', time.localtime(time.time())) + '.log', mode='w',
-        encoding="utf8")
-    fh.setLevel(logging.INFO)  # 输出到file的log等级的开关
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+    log_file = os.path.join(logs_dir, time.strftime('%Y%m%d%H%M', time.localtime(time.time())) + '.log')
+    try:
+        fh = logging.FileHandler(log_file, mode='w', encoding="utf8")
+        fh.setLevel(logging.INFO)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    except Exception:
+        pass
 
-    # 创建一个handler，用于写入控制台
     ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)  # 输出到console的log等级的开关
+    ch.setLevel(logging.INFO)
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
     return logger
 
 
+def setup_dpi_awareness():
+    """设置 Windows 10/11 现代化 Per-Monitor V2 高 DPI 感知"""
+    try:
+        import ctypes
+        # Per-Monitor V2 (Windows 10 1703+ / Windows 11)
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                utility.enable_high_dpi_awareness()
+            except Exception:
+                pass
+
 
 @just_one_instance
 def main():
-    # pathlib可以根据平台自动转换斜杠，不过返回的不是str，还需要转化
-    # exe_dir_path=str(Path(sys.argv[0]).parent)
-
-    exe_dir_path = os.path.dirname(os.path.abspath(sys.argv[0]))
-    # print(exe_dir_path)
-
-    os.environ['REQUESTS_CA_BUNDLE'] = os.path.join(exe_dir_path, 'cacert.pem')
-    # print(os.environ['REQUESTS_CA_BUNDLE'])
-
-    logger = my_logs(exe_dir_path)
-    logger.info(exe_dir_path)
+    exe_dir_path, data_dir_path = get_app_paths()
+    logger = my_logs(data_dir_path)
+    logger.info(f"程序启动，exe_dir: {exe_dir_path}, data_dir: {data_dir_path}")
 
     # 获取屏幕信息
     screen_info = win32api.GetMonitorInfo(win32api.MonitorFromPoint((0, 0)))
     logger.info(str(screen_info))
 
-    # 获取时区
-    # local_tz = get_localzone()
-    # logger.info(local_tz)
-
-    # 需要在创建窗口之前读取的数据
-    if not os.path.exists(exe_dir_path + "/first.sqlite"):
+    first_db_path = os.path.join(data_dir_path, 'first.sqlite')
+    if not os.path.exists(first_db_path):
         logger.info("第一次运行")
-        first_dict = SqliteDict(exe_dir_path + '/first.sqlite', autocommit=True)
+        first_dict = SqliteDict(first_db_path, autocommit=True)
         first_dict["scaling_flag"] = [0]
         first_dict["scaling"] = [133]
     else:
-        first_dict = SqliteDict(exe_dir_path + '/first.sqlite', autocommit=True)
+        first_dict = SqliteDict(first_db_path, autocommit=True)
         logger.info([(x, i) for x, i in first_dict.items()])
+
+    mon_rect = screen_info.get("Monitor", (0, 0, 1920, 1080))
+    mon_w = mon_rect[2] - mon_rect[0]
+    mon_h = mon_rect[3] - mon_rect[1]
 
     try:
         MainWindow(
             title="CountBoard",
             icon=str(Path(exe_dir_path).joinpath("favicon.ico")),
             topmost=1,
-            width=screen_info.get("Monitor")[2] * 1 / 2,
-            height=screen_info.get("Monitor")[3] * 4 / 5,
+            width=int(mon_w * 0.5),
+            height=int(mon_h * 0.8),
             version="1.3.0.2",
             logger=logger,
             exe_dir_path=exe_dir_path,
+            data_dir_path=data_dir_path,
             show=0,
             first_dict=first_dict)
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
 
 
 if __name__ == "__main__":
-    utility.enable_high_dpi_awareness()
+    setup_dpi_awareness()
     main()
 
 # -w不带控制行

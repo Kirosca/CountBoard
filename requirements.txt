@@ -1,0 +1,9 @@
+pywin32>=306
+apscheduler>=3.10.0
+sqlitedict>=2.1.0
+pywin10>=0.0.3
+markdown2>=2.4.0
+tkhtmlview>=0.2.0
+requests>=2.28.0
+pillow>=9.0.0
+tzlocal>=3.0

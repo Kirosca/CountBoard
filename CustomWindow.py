@@ -7,12 +7,13 @@
 @contact: g1695698547@163.com
 """
 import os
+import re
 import sys
 import traceback
 from win32api import GetMonitorInfo, MonitorFromPoint
 
 
-class CustomWindow():
+class CustomWindow:
     """
     自定义模板(用来窗口初始化): self.root要在继承之前使用，tk.Toplevel() 或 tk.TK()
     """
@@ -20,103 +21,99 @@ class CustomWindow():
     def __init__(self, *args, **kwargs):
         """初始化"""
         super().__init__()
-
-        # 布局初始化
         self.__init2__(**kwargs)
+
+    @staticmethod
+    def get_monitor_work_area(x=0, y=0):
+        """获取指定屏幕工作区坐标 (left, top, width, height)"""
+        try:
+            info = GetMonitorInfo(MonitorFromPoint((int(x), int(y))))
+            work = info.get('Work')
+            left, top, right, bottom = work[0], work[1], work[2], work[3]
+            return left, top, max(100, right - left), max(100, bottom - top)
+        except Exception:
+            return 0, 0, 1920, 1080
+
+    def _parse_geometry(self, geo):
+        """安全解析窗口几何参数为 (width, height, x, y)"""
+        if isinstance(geo, list) and geo:
+            geo = geo[0]
+        if isinstance(geo, (tuple, list)) and len(geo) >= 4:
+            return int(geo[0]), int(geo[1]), int(geo[2]), int(geo[3])
+        if isinstance(geo, str):
+            nums = [int(n) for n in re.findall(r'-?\d+', geo)]
+            if len(nums) >= 4:
+                return nums[0], nums[1], nums[2], nums[3]
+        return 300, 300, 100, 100
 
     def __init2__(self, **kwargs):
         """布局初始化"""
-        # 传参,变量初始化
         try:
-            # 先隐藏窗口，加载完成再显示窗口
             self.root.withdraw()
-        except:
-            print("self.root要在继承之前使用，tk.Toplevel() 或 tk.TK()")
-        try:
-            self.overrideredirect = kwargs["overrideredirect"]
-        except:
-            self.overrideredirect = 0
-        try:
-            self.width = kwargs["width"]
-        except:
-            self.width = 300
-        try:
-            self.height = kwargs["height"]
-        except:
-            self.height = 300
-        try:
-            self.title = kwargs["title"]
-        except:
-            self.title = "无标题"
-        try:
-            self.position = kwargs["position"]
-        except:
-            self.position = "center"
-        try:
-            self.icon = kwargs["icon"]
-        except:
-            self.icon = os.path.join(os.path.dirname(sys.argv[0]),"favicon.ico")
-        try:
-            self.topmost = kwargs["topmost"]
-        except:
-            self.topmost = 1
-        try:
-            self.alpha = kwargs["alpha"]
-        except:
-            self.alpha = 1
-        try:
-            self.pre_window = kwargs["pre_window"]
-        except:
-            self.pre_window = None
-        try:
-            self._geometry = kwargs["_geometry"]
-        except:
-            self._geometry = "(300x300+300+300)"
-        try:
-            self._auto_margin = kwargs["_auto_margin"]
-        except:
-            self._auto_margin = False
-        try:
-            self.exe_dir_path = kwargs["exe_dir_path"]
-        except:
-            self.exe_dir_path = os.path.dirname(sys.argv[0])
-        try:
-            self.offset = kwargs["offset"]
-        except:
-            self.offset = 0
-        try:
-            self.show = kwargs["show"]
-        except:
-            self.show = 1
+        except Exception:
+            pass
+
+        self.overrideredirect = kwargs.get("overrideredirect", 0)
+        self.width = kwargs.get("width", 300)
+        self.height = kwargs.get("height", 300)
+        self.title = kwargs.get("title", "无标题")
+        self.position = kwargs.get("position", "center")
+        self.icon = kwargs.get("icon", os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "favicon.ico"))
+        self.topmost = kwargs.get("topmost", 1)
+        self.alpha = kwargs.get("alpha", 1)
+        self.pre_window = kwargs.get("pre_window", None)
+        self._geometry = kwargs.get("_geometry", (300, 300, 100, 100))
+        self._auto_margin = kwargs.get("_auto_margin", False)
+        self.exe_dir_path = kwargs.get("exe_dir_path", os.path.dirname(os.path.abspath(sys.argv[0])))
+        self.offset = kwargs.get("offset", 0)
+        self.show = kwargs.get("show", 1)
 
         # 窗体基本设置
-        self.root.title(self.title)
-        self.root.iconbitmap(self.icon)
-        self.root.wm_attributes('-alpha', self.alpha)
-        self.root.wm_attributes('-topmost', self.topmost)
-        # 无边框窗体：此项只有最后设置才可以，否则无法起效
-        self.root.overrideredirect(self.overrideredirect)
+        try:
+            self.root.title(self.title)
+        except Exception:
+            pass
 
-        # 使用win32获取工作区宽高
-        self.work_width = GetMonitorInfo(MonitorFromPoint((0, 0))).get('Work')[2]
-        self.work_heigh = GetMonitorInfo(MonitorFromPoint((0, 0))).get('Work')[3]
+        try:
+            if os.path.exists(self.icon):
+                self.root.iconbitmap(self.icon)
+        except Exception:
+            pass
 
-        # 屏幕宽高
-        self.win_width = self.root.winfo_screenwidth()
-        self.win_heigth = self.root.winfo_screenheight()
+        try:
+            self.root.wm_attributes('-alpha', self.alpha)
+            self.root.wm_attributes('-topmost', self.topmost)
+        except Exception:
+            pass
+
+        # 无边框窗体设置
+        try:
+            self.root.overrideredirect(self.overrideredirect)
+        except Exception:
+            pass
+
+        # 工作区与屏幕尺寸
+        self.work_x, self.work_y, self.work_width, self.work_heigh = self.get_monitor_work_area(0, 0)
+        try:
+            self.win_width = self.root.winfo_screenwidth()
+            self.win_heigth = self.root.winfo_screenheight()
+        except Exception:
+            self.win_width, self.win_heigth = self.work_width, self.work_heigh
 
         # 设置窗体位置
         if self.position == "custom":
-            self.width = self._geometry[0]
-            self.height = self._geometry[1]
-        self.set_position(self.position, self.pre_window, self._geometry)
+            w, h, _, _ = self._parse_geometry(self._geometry)
+            self.width = w
+            self.height = h
 
-        # 设置贴边
+        self.set_position(self.position, self.pre_window, self._geometry)
         self.set_auto_margin(self._auto_margin)
 
-        # 先隐藏窗体，加载完成，最后再显示窗体
         if self.show:
-            self.root.deiconify()
+            try:
+                self.root.deiconify()
+            except Exception:
+                pass
 
     def modify_offset(self, offset):
         """外部调用，修改贴边距离"""
@@ -126,71 +123,67 @@ class CustomWindow():
         """外部调用，修改是否贴边"""
         self._auto_margin = _auto_margin
 
-    def set_position(self, position="center", pre_window=None, _geometry: str = ""):
-        """
-        设置窗体的位置,可以在外部调用
-
-        Args:
-            position: 窗体位置
-            pre_window: 上一个窗体对象
-            _geometry: 自定义位置
-        """
+    def set_position(self, position="center", pre_window=None, _geometry=None):
+        """设置窗体位置"""
         if position == "center":
-            # 中心位置,要传入宽高
-            width_adjust = (self.work_width - self.width) / 2
-            higth_adjust = (self.work_heigh - self.height) / 2
-            self.root.geometry("%dx%d+%d+%d" % (self.width, self.height, width_adjust, higth_adjust))
-        elif position == "follow":
-            # 跟随位置,要传入高
-            # 跟随上一个窗体,在上一个窗体正下方，且宽度一致
-            self.pre_window_root = pre_window.root
-            self.width = pre_window.width
-            self.pre_window_root_x, self.pre_window_root_y, self.pre_window_root_w, self.pre_window_root_h = \
-                self.pre_window_root.winfo_x(), \
-                self.pre_window_root.winfo_y(), \
-                self.pre_window_root.winfo_width(), \
-                self.pre_window_root.winfo_height()
-            self.width_adjust = self.pre_window_root_x
-            self.height_adjust = self.pre_window_root_y + self.pre_window_root_h + 40
-            self.root.geometry("%dx%d+%d+%d" % (self.width, self.height, self.width_adjust, self.height_adjust))
+            width_adjust = int(self.work_x + (self.work_width - self.width) / 2)
+            higth_adjust = int(self.work_y + (self.work_heigh - self.height) / 2)
+            self.root.geometry(f"{int(self.width)}x{int(self.height)}+{width_adjust}+{higth_adjust}")
+        elif position == "follow" and pre_window:
+            try:
+                self.pre_window_root = pre_window.root
+                self.width = pre_window.width
+                x = self.pre_window_root.winfo_x()
+                y = self.pre_window_root.winfo_y()
+                h = self.pre_window_root.winfo_height()
+                self.width_adjust = x
+                self.height_adjust = y + h + 40
+                self.root.geometry(f"{int(self.width)}x{int(self.height)}+{self.width_adjust}+{self.height_adjust}")
+            except Exception:
+                pass
         elif position == "custom":
-            # 自定义位置，要传入_geometry
-            self.root.geometry("%dx%d+%d+%d" % _geometry)
+            geo_source = _geometry if _geometry is not None else self._geometry
+            w, h, x, y = self._parse_geometry(geo_source)
+            self.width, self.height = w, h
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
 
     def exit(self):
         """退出窗体"""
-        # 退出消息循环
-        self.root.quit()
-        # 销毁窗口
-        self.root.destroy()
+        try:
+            self.root.quit()
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
     def set_auto_margin(self, flag):
-        """设置自动贴边:有边框的窗体会有像素偏差，无边框正常"""
+        """设置自动贴边"""
         self.root_x, self.root_y, self.abs_x, self.abs_y = 0, 0, 0, 0
 
-        if flag == True:
+        if flag:
             self.root.bind('<B1-Motion>', self._on_move)
             self.root.bind('<ButtonPress-1>', self._on_tap)
             self.root.bind('<ButtonRelease-1>', self._on_release)
         else:
-            self.root.unbind('<B1-Motion>')
-            self.root.unbind('<ButtonPress-1>')
-            self.root.unbind('<ButtonRelease-1>')
+            try:
+                self.root.unbind('<B1-Motion>')
+                self.root.unbind('<ButtonPress-1>')
+                self.root.unbind('<ButtonRelease-1>')
+            except Exception:
+                pass
 
     def _on_move(self, event):
         """移动"""
         offset_x = event.x_root - self.root_x
         offset_y = event.y_root - self.root_y
-
         x_adjust = self.abs_x + offset_x
         y_adjust = self.abs_y + offset_y
-
-        geo_str = "%dx%d+%d+%d" % (self.width, self.height,
-                                   x_adjust, y_adjust)
-        self.root.geometry(geo_str)
+        self.root.geometry(f"{int(self.width)}x{int(self.height)}+{int(x_adjust)}+{int(y_adjust)}")
 
     def _on_tap(self, event):
-        """鼠标左键按下：更新窗口信息--1.鼠标位置，2.窗口大小"""
+        """鼠标左键按下：更新窗口信息"""
         self.root_x, self.root_y = event.x_root, event.y_root
         self.abs_x, self.abs_y = self.root.winfo_x(), self.root.winfo_y()
         self.width = self.root.winfo_width()
@@ -200,34 +193,40 @@ class CustomWindow():
         """鼠标左键弹起"""
         offset_x = event.x_root - self.root_x
         offset_y = event.y_root - self.root_y
+        target_x = self.abs_x + offset_x
+        target_y = self.abs_y + offset_y
 
         if self._auto_margin:
-            if self.width + self.abs_x + offset_x > self.work_width:
-                x_adjust = self.work_width - self.width - self.offset
-            elif self.abs_x + offset_x < 0:
-                x_adjust = 0 + self.offset
-            else:
-                x_adjust = self.abs_x + offset_x
+            # 动态获取当前鼠标所在屏幕的工作区
+            work_x, work_y, work_w, work_h = self.get_monitor_work_area(event.x_root, event.y_root)
 
-            if self.height + self.abs_y + offset_y > self.work_heigh:
-                y_adjust = self.work_heigh - self.height - self.offset
-            elif self.abs_y + offset_y < 0:
-                y_adjust = 0 + self.offset
+            # 磁贴吸附边缘判定
+            if target_x + self.width > work_x + work_w - self.offset:
+                x_adjust = work_x + work_w - self.width - self.offset
+            elif target_x < work_x + self.offset:
+                x_adjust = work_x + self.offset
             else:
-                y_adjust = self.abs_y + offset_y
+                x_adjust = target_x
+
+            if target_y + self.height > work_y + work_h - self.offset:
+                y_adjust = work_y + work_h - self.height - self.offset
+            elif target_y < work_y + self.offset:
+                y_adjust = work_y + self.offset
+            else:
+                y_adjust = target_y
         else:
-            y_adjust = self.abs_y + offset_y
-            x_adjust = self.abs_x + offset_x
+            x_adjust = target_x
+            y_adjust = target_y
 
-        geo_str = "%dx%d+%d+%d" % (self.width, self.height, x_adjust, y_adjust)
+        geo_str = f"{int(self.width)}x{int(self.height)}+{int(x_adjust)}+{int(y_adjust)}"
+
+        if "mysetting_dict" in kwargs and kwargs["mysetting_dict"] is not None:
+            try:
+                kwargs["mysetting_dict"]["tile_geometry"] = [(int(self.width), int(self.height), int(x_adjust), int(y_adjust))]
+            except Exception:
+                pass
 
         try:
-            mysetting_dict = kwargs["mysetting_dict"]
-            mysetting_dict["tile_geometry"] = [(self.width, self.height, x_adjust, y_adjust)]
-            print("写入数据库成功")
-
-        except:
-            print("写入数据库失败")
-            print(traceback.format_exc())
-
-        self.root.geometry(geo_str)
+            self.root.geometry(geo_str)
+        except Exception:
+            pass
