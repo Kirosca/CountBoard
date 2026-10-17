@@ -39,7 +39,11 @@ jobs:
           pyinstaller --clean CountBoard.spec
 
       - name: 安装 Inno Setup 编译器
-        run: choco install innosetup -y
+        run: |
+          choco install innosetup -y
+          if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl")) {
+            Copy-Item -Path "ChineseSimplified.isl" -Destination "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl" -Force -ErrorAction SilentlyContinue
+          }
 
       - name: 使用 Inno Setup 编译 Windows 安装包
         run: |

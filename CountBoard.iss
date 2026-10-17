@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "CountBoard"
-#define MyAppVersion "1.3.0.2"
+#define MyAppVersion "1.3.0.3"
 #define MyAppPublisher "Gaoyongxian"
 #define MyAppURL "https://github.com/Gaoyongxian666/CountBoard"
 #define MyAppExeName "CountBoard.exe"
@@ -40,8 +40,8 @@ begin
 end;
 
 [Languages]
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "cn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
