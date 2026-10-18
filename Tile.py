@@ -434,8 +434,10 @@ class Tasks:
             except Exception:
                 diff_days = 0
 
-        if diff_days >= 0:
-            self.task_countdown_text = str(diff_days + 1) if mode == "普通模式" else str(diff_days)
+        if diff_days > 0:
+            self.task_countdown_text = str(diff_days)
+        elif diff_days == 0:
+            self.task_countdown_text = "1" if mode == "普通模式" else "0"
         else:
             self.task_countdown_text = str(diff_days)
 

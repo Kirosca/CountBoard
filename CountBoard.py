@@ -1520,7 +1520,7 @@ def main():
             topmost=1,
             width=int(mon_w * 0.5),
             height=int(mon_h * 0.8),
-            version="1.3.0.6",
+            version="1.3.0.7",
             logger=logger,
             exe_dir_path=exe_dir_path,
             data_dir_path=data_dir_path,

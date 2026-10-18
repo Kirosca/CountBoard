@@ -52,7 +52,7 @@ options = {
 
 setup(
     name="CountBoard",
-    version="1.3.0.6",
+    version="1.3.0.7",
     description="CountBoard 是一个基于 Tkinter 开源的桌面日程倒计时应用。",
     executables=executables,
     options=options
