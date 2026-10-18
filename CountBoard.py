@@ -9,6 +9,7 @@
 import functools
 import logging
 import os
+import shutil
 import sys
 import time
 import win32api
@@ -1317,6 +1318,100 @@ def my_logs(data_dir_path):
     return logger
 
 
+def migrate_legacy_data_if_needed(data_dir_path, logger=None):
+    """
+    自动检测并迁移上游历史版本（如 1.3.0.2、1.1.0.1 等）或其它位置遗留的倒计时数据
+    """
+    target_db = os.path.join(data_dir_path, 'my_db.sqlite')
+    if os.path.exists(target_db):
+        return
+
+    candidate_files = []
+
+    # 1. 扫描当前数据目录的同级或父级目录（针对类似 Documents/CountBoard/1.3.0.2 的结构）
+    try:
+        parent_dir = os.path.dirname(os.path.abspath(data_dir_path))
+        search_dirs = [parent_dir]
+        grandparent_dir = os.path.dirname(parent_dir)
+        if os.path.basename(parent_dir).lower() != "countboard" and os.path.basename(grandparent_dir).lower() == "countboard":
+            search_dirs.append(grandparent_dir)
+
+        for s_dir in search_dirs:
+            if os.path.exists(s_dir):
+                for entry in os.scandir(s_dir):
+                    if entry.is_dir() and os.path.abspath(entry.path) != os.path.abspath(data_dir_path):
+                        legacy_db = os.path.join(entry.path, 'my_db.sqlite')
+                        if os.path.exists(legacy_db):
+                            candidate_files.append(legacy_db)
+    except Exception as e:
+        if logger:
+            logger.warning(f"扫描父级目录历史数据失败: {e}")
+
+    # 2. 扫描用户文档目录下的 CountBoard 历史安装路径（包括常见版本子目录与根目录）
+    user_profile = os.environ.get("USERPROFILE", "")
+    onedrive = os.environ.get("ONEDRIVE", "")
+    doc_roots = []
+    if user_profile:
+        doc_roots.append(os.path.join(user_profile, "Documents", "CountBoard"))
+        doc_roots.append(os.path.join(user_profile, "OneDrive", "Documents", "CountBoard"))
+    if onedrive:
+        doc_roots.append(os.path.join(onedrive, "Documents", "CountBoard"))
+
+    for doc_root in doc_roots:
+        if os.path.exists(doc_root):
+            root_db = os.path.join(doc_root, 'my_db.sqlite')
+            if os.path.exists(root_db) and os.path.abspath(doc_root) != os.path.abspath(data_dir_path):
+                candidate_files.append(root_db)
+            try:
+                for entry in os.scandir(doc_root):
+                    if entry.is_dir() and os.path.abspath(entry.path) != os.path.abspath(data_dir_path):
+                        legacy_db = os.path.join(entry.path, 'my_db.sqlite')
+                        if os.path.exists(legacy_db):
+                            candidate_files.append(legacy_db)
+            except Exception as e:
+                if logger:
+                    logger.warning(f"扫描文档历史数据目录失败: {e}")
+
+    # 3. 扫描 %LOCALAPPDATA%\CountBoard
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    if local_app_data:
+        appdata_db = os.path.join(local_app_data, "CountBoard", "my_db.sqlite")
+        if os.path.exists(appdata_db) and os.path.abspath(os.path.dirname(appdata_db)) != os.path.abspath(data_dir_path):
+            candidate_files.append(appdata_db)
+
+    # 4. 扫描程序执行目录（针对从安装版切换为便携版或便携版在特定目录时）
+    exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    exe_db = os.path.join(exe_dir, 'my_db.sqlite')
+    if os.path.exists(exe_db) and os.path.abspath(exe_dir) != os.path.abspath(data_dir_path):
+        candidate_files.append(exe_db)
+
+    # 去重
+    unique_candidates = list({os.path.abspath(f): f for f in candidate_files}.values())
+    if not unique_candidates:
+        return
+
+    # 按文件最后修改时间倒序，获取用户最近更新过的数据文件
+    unique_candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    best_candidate_db = unique_candidates[0]
+    source_dir = os.path.dirname(best_candidate_db)
+
+    if logger:
+        logger.info(f"发现历史版本数据源: {source_dir}，准备执行自动平滑迁移")
+
+    # 迁移核心数据库与配置
+    for fname in ['my_db.sqlite', 'my_setting.sqlite', 'first.sqlite']:
+        src_file = os.path.join(source_dir, fname)
+        dst_file = os.path.join(data_dir_path, fname)
+        if os.path.exists(src_file) and not os.path.exists(dst_file):
+            try:
+                shutil.copy2(src_file, dst_file)
+                if logger:
+                    logger.info(f"历史数据文件迁移完成: {fname} -> {dst_file}")
+            except Exception as e:
+                if logger:
+                    logger.error(f"历史数据文件迁移失败: {fname}, 原因: {e}")
+
+
 def setup_dpi_awareness():
     """设置 Windows 10/11 现代化 Per-Monitor V2 高 DPI 感知"""
     try:
@@ -1339,6 +1434,9 @@ def main():
     exe_dir_path, data_dir_path = get_app_paths()
     logger = my_logs(data_dir_path)
     logger.info(f"程序启动，exe_dir: {exe_dir_path}, data_dir: {data_dir_path}")
+
+    # 自动迁移历史版本数据（如果当前数据目录尚无数据库）
+    migrate_legacy_data_if_needed(data_dir_path, logger)
 
     # 获取屏幕信息
     screen_info = win32api.GetMonitorInfo(win32api.MonitorFromPoint((0, 0)))
@@ -1365,7 +1463,7 @@ def main():
             topmost=1,
             width=int(mon_w * 0.5),
             height=int(mon_h * 0.8),
-            version="1.3.0.4",
+            version="1.3.0.5",
             logger=logger,
             exe_dir_path=exe_dir_path,
             data_dir_path=data_dir_path,

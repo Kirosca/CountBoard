@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "CountBoard"
-#define MyAppVersion "1.3.0.4"
+#define MyAppVersion "1.3.0.5"
 #define MyAppPublisher "Gaoyongxian"
 #define MyAppURL "https://github.com/Gaoyongxian666/CountBoard"
 #define MyAppExeName "CountBoard.exe"
@@ -15,7 +15,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={userdocs}/{#MyAppName}/{#MyAppVersion}
+DefaultDirName={userdocs}/{#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=.\dist_setup
 OutputBaseFilename=CountBoard_Setup_{#MyAppVersion}
