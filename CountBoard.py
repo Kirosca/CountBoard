@@ -1320,15 +1320,38 @@ def my_logs(data_dir_path):
 
 def migrate_legacy_data_if_needed(data_dir_path, logger=None):
     """
-    自动检测并迁移上游历史版本（如 1.3.0.2、1.1.0.1 等）或其它位置遗留的倒计时数据
+    自动检测并迁移上游历史版本（如 1.3.0.2、1.1.0.1 等）或其它位置遗留的倒计时数据。
+    若当前数据目录尚无数据库或仅有空数据库，自动从历史数据库中导入数据。
     """
     target_db = os.path.join(data_dir_path, 'my_db.sqlite')
+    target_has_data = False
     if os.path.exists(target_db):
+        try:
+            with SqliteDict(target_db) as db:
+                if len(db) > 0:
+                    target_has_data = True
+        except Exception:
+            target_has_data = False
+
+    # 若当前数据库已有有效数据，不执行覆盖
+    if target_has_data:
         return
 
     candidate_files = []
 
-    # 1. 扫描当前数据目录的同级或父级目录（针对类似 Documents/CountBoard/1.3.0.2 的结构）
+    # 1. 扫描当前数据目录内部的所有子目录（例如直接位于当前安装目录下的 1.3.0.2、1.1.0.1 等）
+    if os.path.exists(data_dir_path):
+        try:
+            for entry in os.scandir(data_dir_path):
+                if entry.is_dir():
+                    legacy_db = os.path.join(entry.path, 'my_db.sqlite')
+                    if os.path.exists(legacy_db):
+                        candidate_files.append(legacy_db)
+        except Exception as e:
+            if logger:
+                logger.warning(f"扫描当前目录下子目录历史数据失败: {e}")
+
+    # 2. 扫描父级目录及其同级目录（例如当前为 Documents/CountBoard/1.3.0.4 时查找 Documents/CountBoard/1.3.0.2）
     try:
         parent_dir = os.path.dirname(os.path.abspath(data_dir_path))
         search_dirs = [parent_dir]
@@ -1339,18 +1362,28 @@ def migrate_legacy_data_if_needed(data_dir_path, logger=None):
         for s_dir in search_dirs:
             if os.path.exists(s_dir):
                 for entry in os.scandir(s_dir):
-                    if entry.is_dir() and os.path.abspath(entry.path) != os.path.abspath(data_dir_path):
-                        legacy_db = os.path.join(entry.path, 'my_db.sqlite')
-                        if os.path.exists(legacy_db):
-                            candidate_files.append(legacy_db)
+                    if entry.is_dir():
+                        if os.path.abspath(entry.path) != os.path.abspath(data_dir_path):
+                            legacy_db = os.path.join(entry.path, 'my_db.sqlite')
+                            if os.path.exists(legacy_db):
+                                candidate_files.append(legacy_db)
+                        # 扫描二级子目录
+                        try:
+                            for sub in os.scandir(entry.path):
+                                if sub.is_dir() and os.path.abspath(sub.path) != os.path.abspath(data_dir_path):
+                                    sub_db = os.path.join(sub.path, 'my_db.sqlite')
+                                    if os.path.exists(sub_db):
+                                        candidate_files.append(sub_db)
+                        except Exception:
+                            pass
     except Exception as e:
         if logger:
             logger.warning(f"扫描父级目录历史数据失败: {e}")
 
-    # 2. 扫描用户文档目录下的 CountBoard 历史安装路径（包括常见版本子目录与根目录）
+    # 3. 扫描 Windows 常用文档目录（包含当前驱动器、用户 Profile 及 OneDrive）
+    doc_roots = []
     user_profile = os.environ.get("USERPROFILE", "")
     onedrive = os.environ.get("ONEDRIVE", "")
-    doc_roots = []
     if user_profile:
         doc_roots.append(os.path.join(user_profile, "Documents", "CountBoard"))
         doc_roots.append(os.path.join(user_profile, "OneDrive", "Documents", "CountBoard"))
@@ -1372,14 +1405,14 @@ def migrate_legacy_data_if_needed(data_dir_path, logger=None):
                 if logger:
                     logger.warning(f"扫描文档历史数据目录失败: {e}")
 
-    # 3. 扫描 %LOCALAPPDATA%\CountBoard
+    # 4. 扫描 %LOCALAPPDATA%\CountBoard
     local_app_data = os.environ.get("LOCALAPPDATA", "")
     if local_app_data:
         appdata_db = os.path.join(local_app_data, "CountBoard", "my_db.sqlite")
         if os.path.exists(appdata_db) and os.path.abspath(os.path.dirname(appdata_db)) != os.path.abspath(data_dir_path):
             candidate_files.append(appdata_db)
 
-    # 4. 扫描程序执行目录（针对从安装版切换为便携版或便携版在特定目录时）
+    # 5. 扫描程序执行目录
     exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
     exe_db = os.path.join(exe_dir, 'my_db.sqlite')
     if os.path.exists(exe_db) and os.path.abspath(exe_dir) != os.path.abspath(data_dir_path):
@@ -1390,19 +1423,43 @@ def migrate_legacy_data_if_needed(data_dir_path, logger=None):
     if not unique_candidates:
         return
 
-    # 按文件最后修改时间倒序，获取用户最近更新过的数据文件
-    unique_candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    # 优先选取包含有效数据项（len > 0）的候选，并在其中按修改时间倒序选择最新数据
+    def score_candidate(path):
+        item_cnt = 0
+        try:
+            with SqliteDict(path) as db:
+                item_cnt = len(db)
+        except Exception:
+            item_cnt = 0
+        try:
+            mtime = os.path.getmtime(path)
+        except Exception:
+            mtime = 0
+        return (item_cnt > 0, mtime)
+
+    unique_candidates.sort(key=score_candidate, reverse=True)
     best_candidate_db = unique_candidates[0]
     source_dir = os.path.dirname(best_candidate_db)
 
+    # 确认最优候选数据库是否包含数据
+    best_count = 0
+    try:
+        with SqliteDict(best_candidate_db) as db:
+            best_count = len(db)
+    except Exception:
+        best_count = 0
+
+    if best_count == 0 and os.path.exists(target_db):
+        return
+
     if logger:
-        logger.info(f"发现历史版本数据源: {source_dir}，准备执行自动平滑迁移")
+        logger.info(f"选定历史数据源: {source_dir} (有效日程数: {best_count})，准备执行平滑迁移")
 
     # 迁移核心数据库与配置
     for fname in ['my_db.sqlite', 'my_setting.sqlite', 'first.sqlite']:
         src_file = os.path.join(source_dir, fname)
         dst_file = os.path.join(data_dir_path, fname)
-        if os.path.exists(src_file) and not os.path.exists(dst_file):
+        if os.path.exists(src_file):
             try:
                 shutil.copy2(src_file, dst_file)
                 if logger:
@@ -1463,7 +1520,7 @@ def main():
             topmost=1,
             width=int(mon_w * 0.5),
             height=int(mon_h * 0.8),
-            version="1.3.0.5",
+            version="1.3.0.6",
             logger=logger,
             exe_dir_path=exe_dir_path,
             data_dir_path=data_dir_path,
