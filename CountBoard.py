@@ -13,6 +13,7 @@ import sys
 import time
 import win32api
 import win32con
+from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from pywin10 import TaskBarIcon
 from sqlitedict import SqliteDict
@@ -126,10 +127,10 @@ class MainWindow(CustomWindow):
         self.root.protocol("WM_DELETE_WINDOW", self.close_)
 
         # 大名鼎鼎的apscheduler
-        # self.scheduler = BackgroundScheduler(timezone='Asia/Shanghai')
-        self.scheduler = BackgroundScheduler(timezone='Asia/Shanghai')
-        self.scheduler.add_job(self.refresh_, 'cron', hour=0, minute=0)
+        self.scheduler = BackgroundScheduler()
+        self.scheduler.add_job(self.refresh_, 'cron', hour=0, minute=0, misfire_grace_time=3600)
         self.scheduler.start()
+        self.current_date = datetime.now().date()
 
     def close_(self):
         """重写关闭按钮"""
@@ -148,6 +149,12 @@ class MainWindow(CustomWindow):
 
     def relay(self):
         """更新UI队列"""
+        # 跨天检测（例如电脑未关机跨过午夜或睡眠唤醒）
+        today = datetime.now().date()
+        if hasattr(self, 'current_date') and today != self.current_date:
+            self.current_date = today
+            self.refresh_()
+
         try:
             # 队列不可阻塞
             content = self.main_window_queue.get(False)
@@ -1358,7 +1365,7 @@ def main():
             topmost=1,
             width=int(mon_w * 0.5),
             height=int(mon_h * 0.8),
-            version="1.3.0.2",
+            version="1.3.0.4",
             logger=logger,
             exe_dir_path=exe_dir_path,
             data_dir_path=data_dir_path,

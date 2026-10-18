@@ -47,8 +47,6 @@ class Tile(CustomWindow):
         self.initialization_thread.setDaemon(True)
         self.initialization_thread.start()
 
-        self.root.mainloop()
-
     def __init__2(self, bg, exe_dir_path, mydb_dict, mysetting_dict, tile_queue, logger, *args, **kwargs):
         """
         布局初始化(必须在主线程进行的操作，比如设置主题，窗口布局，变量初始化)
@@ -60,6 +58,7 @@ class Tile(CustomWindow):
         self.mydb_dict = mydb_dict
         self.mysetting_dict = mysetting_dict
         self.tile_queue = tile_queue  # 子线程与主线程的队列作为中继
+        self.current_date = datetime.now().date()
         # 布局
         self.frame_top = Frame(self.root, bg=self.bg)
         # self.frame_top.configure(highlightbackground="#202020")
@@ -123,6 +122,13 @@ class Tile(CustomWindow):
 
     def relay(self):
         """更新UI队列"""
+        # 跨天检测（例如电脑未关机跨越午夜或睡眠唤醒）
+        today = datetime.now().date()
+        if hasattr(self, 'current_date') and today != self.current_date:
+            self.current_date = today
+            if hasattr(self, 'tasks') and self.tasks:
+                self.tasks.refresh_tasks()
+
         try:
             # 队列不可阻塞
             content = self.tile_queue.get(False)
@@ -365,22 +371,25 @@ class Tasks:
 
     def update_sqlite_time(self):
         # 初始化更新时间
-        from datetime import datetime
-        startdate = datetime.today()
+        today = datetime.now().date()
         for key, value in list(self.mydb_dict.items()):
             try:
-                enddate = datetime.strptime(value[1], '%Y-%m-%d')
-                days = str((enddate - startdate).days)
+                enddate = datetime.strptime(value[1], '%Y-%m-%d').date()
+                days = str((enddate - today).days)
                 self.mydb_dict[key] = [value[0], value[1], days, value[3], value[4], value[5]]
             except Exception:
                 pass
 
     def __get_int_day(self, value):
-        """按照时间排序(返回第三个值,时间值)"""
+        """按照时间排序(返回时间值)"""
         try:
-            return int(value[2])
+            enddate = datetime.strptime(value[1], '%Y-%m-%d').date()
+            return (enddate - datetime.now().date()).days
         except Exception:
-            return 999999
+            try:
+                return int(value[2])
+            except Exception:
+                return 999999
 
     def __round_rectangle(self, x1, y1, x2, y2, radius=25, **kwargs):
         """画长方形"""
@@ -416,13 +425,22 @@ class Tasks:
         self.task_main_text = value[0]
         self.task_time_text = value[1]
         mode = self.mysetting_dict["mode"][0]
-        if mode == "普通模式":
-            self.task_countdown_text = str(int(value[2]) + 1)
+        try:
+            enddate = datetime.strptime(value[1], '%Y-%m-%d').date()
+            diff_days = (enddate - datetime.now().date()).days
+        except Exception:
+            try:
+                diff_days = int(value[2])
+            except Exception:
+                diff_days = 0
+
+        if diff_days >= 0:
+            self.task_countdown_text = str(diff_days + 1) if mode == "普通模式" else str(diff_days)
         else:
-            self.task_countdown_text = value[2]
+            self.task_countdown_text = str(diff_days)
+
         self.task_color = value[3]
         self.task_tag_name = value[4]  # tag是组件的标识符
-        self.task_text_color = value[5]
         self.task_text_color = value[5]
 
         self.__round_rectangle(
@@ -499,6 +517,8 @@ class Tasks:
             pass
 
     def refresh_tasks(self):
+        # 重新绘制前更新数据库倒计时天数缓存
+        self.update_sqlite_time()
         # 画布删除,重新画
         self.canvas.delete("all")
         self.show_all()
@@ -651,9 +671,9 @@ class NewTaskWindow(CustomWindow):
             self.tile_queue.put(("del_one", self.value[0]))
 
         # 点击确认按钮,更新数据库
-        startdate = datetime.today()
-        enddate = datetime.strptime(self.date_entry.entry.get(), '%Y-%m-%d')
-        days = str((enddate - startdate).days)
+        today = datetime.now().date()
+        enddate = datetime.strptime(self.date_entry.entry.get(), '%Y-%m-%d').date()
+        days = str((enddate - today).days)
         value = [self.task_name_entry.get(),
                  self.date_entry.entry.get(),
                  days,
